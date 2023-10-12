@@ -111,6 +111,10 @@ class Unifi extends utils.Adapter {
                 await this.setStateAsync('info.connection', { ack: true, val: false });
                 this.setForeignState(`system.adapter.${this.namespace}.alive`, false);
             }
+
+            if (this.config.isOnlineUseWebsocket) {
+                this.websocketConnection();
+            }
         } catch (err) {
             this.handleError(err, undefined, 'onReady');
         }
@@ -178,6 +182,9 @@ class Unifi extends utils.Adapter {
             if (this.queryTimeout) {
                 clearTimeout(this.queryTimeout);
             }
+
+            this.setStateAsync('info.connection', false, true);
+            this.setStateAsync('info.ws_connection', false, true);
 
             this.log.info('cleaned everything up...');
             callback();
@@ -469,9 +476,9 @@ class Unifi extends utils.Adapter {
     async processClients(site, data) {
         const objects = require('./admin/lib/objects_clients.json');
 
-        if(this.update.blacklist === true){
+        if (this.update.blacklist === true) {
             if (data) {
-            // Process objectsFilter
+                // Process objectsFilter
                 const siteData = data.filter((item) => {
                     if (this.objectsFilter.clients.includes(item.mac) == true ||
                         this.objectsFilter.clients.includes(item.ip) == true ||
@@ -486,7 +493,7 @@ class Unifi extends utils.Adapter {
                 }
             }
         }
-        if(this.update.blacklist === false){
+        if (this.update.blacklist === false) {
             if (data) {
                 // Process objectsFilter
                 const siteData = data.filter((item) => {
@@ -497,7 +504,7 @@ class Unifi extends utils.Adapter {
                         return item;
                     }
                 });
-            
+
                 this.log.silly(`processClients: filtered data: ${JSON.stringify(siteData)}`);
 
                 if (siteData.length > 0) {
@@ -506,7 +513,7 @@ class Unifi extends utils.Adapter {
             }
         }
     }
-    
+
     /**
      * Function to identify blocked clients and set the correct state
      * @param {Object} site
@@ -1401,6 +1408,65 @@ class Unifi extends utils.Adapter {
                 }
                 this.extractsIds(value.logic.has, idList, libName);
             }
+        }
+    }
+
+    async websocketConnection() {
+        try {
+            await this.setStateAsync('info.ws_connection', false, true);
+
+            const wsUnifi = new UnifiClass.Controller({
+                host: this.settings.controllerIp,
+                port: this.settings.controllerPort,
+                username: this.settings.controllerUsername,
+                password: this.settings.controllerPassword,
+                sslverify: !this.settings.ignoreSSLErrors
+            });
+
+            const loginData = await wsUnifi.login(this.settings.controllerUsername, this.settings.controllerPassword);
+            this.log.info(`websocket login successfull: ${loginData}`);
+
+            const listenData = await wsUnifi.listen();
+            this.log.info(`websocket listening successfull: ${listenData}`);
+
+            const that = this;
+
+            wsUnifi.on('ctrl.connect', async function () {
+                // Websocket connection established
+                await that.setStateAsync('info.ws_connection', true, true);
+                that.log.info(`websocket connection established`);
+            });
+
+            wsUnifi.on('ctrl.disconnect', async function () {
+                // Websocket connection established
+                await that.setStateAsync('info.ws_connection', false, true);
+                that.log.warn(`websocket connection lost`);
+            });
+
+            wsUnifi.on('events.*', function (data) {
+                that.log.warn('hier');
+                that.log.warn(this.event);
+                that.log.info(JSON.stringify(data));
+            });
+
+
+            // events:
+            // events.evt_sw_poedisconnect
+            // events.evt_ap_lost_contact
+
+            // events.evt_wu_roam
+            // events.evt_wu_connected
+            // events.evt_wu_disconnected
+
+            // events.evt_lu_disconnected
+
+
+            // https://github.com/worldwidewoogie/unifi-axios-events
+            // https://bananamafia.dev/post/unifi/
+
+
+        } catch (err) {
+            this.handleError(err, undefined, 'connectWebsocket');
         }
     }
 }

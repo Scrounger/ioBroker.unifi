@@ -200,7 +200,8 @@
     "createVouchersDownloadLimit": null,
     "createVouchersByteQuota": null,
     "createVouchersNote": "",
-    "ignoreSSLErrors": true
+    "ignoreSSLErrors": true,
+    "isOnlineUseWebsocket": false
   },
   "protectedNative": [
     "controllerPassword"
@@ -224,6 +225,19 @@
       "common": {
         "role": "indicator.connected",
         "name": "Connected to UniFi controller",
+        "type": "boolean",
+        "read": true,
+        "write": false,
+        "def": false
+      },
+      "native": {}
+    },
+    {
+      "_id": "info.ws_connection",
+      "type": "state",
+      "common": {
+        "role": "indicator.connected",
+        "name": "Connected to UniFi controller websocket",
         "type": "boolean",
         "read": true,
         "write": false,
