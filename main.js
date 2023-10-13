@@ -39,6 +39,8 @@ class Unifi extends utils.Adapter {
         this.ownObjects = {};
 
         this.stopped = false;
+
+        this.wsUnifi = null;
     }
 
     /**
@@ -181,6 +183,13 @@ class Unifi extends utils.Adapter {
             this.stopped = true;
             if (this.queryTimeout) {
                 clearTimeout(this.queryTimeout);
+            }
+
+            if (this.config.isOnlineUseWebsocket) {
+                try {
+                    this.wsUnifi.logout();
+                    this.log.info(`websocket connection closed`);
+                } catch (ignore) { /* ignore */ }
             }
 
             this.setStateAsync('info.connection', false, true);
@@ -1415,7 +1424,7 @@ class Unifi extends utils.Adapter {
         try {
             await this.setStateAsync('info.ws_connection', false, true);
 
-            const wsUnifi = new UnifiClass.Controller({
+            this.wsUnifi = new UnifiClass.Controller({
                 host: this.settings.controllerIp,
                 port: this.settings.controllerPort,
                 username: this.settings.controllerUsername,
@@ -1423,32 +1432,50 @@ class Unifi extends utils.Adapter {
                 sslverify: !this.settings.ignoreSSLErrors
             });
 
-            const loginData = await wsUnifi.login(this.settings.controllerUsername, this.settings.controllerPassword);
+            const loginData = await this.wsUnifi.login(this.settings.controllerUsername, this.settings.controllerPassword);
             this.log.info(`websocket login successfull: ${loginData}`);
 
-            const listenData = await wsUnifi.listen();
+            const listenData = await this.wsUnifi.listen();
             this.log.info(`websocket listening successfull: ${listenData}`);
 
             const that = this;
 
-            wsUnifi.on('ctrl.connect', async function () {
+            this.wsUnifi.on('ctrl.connect', async function () {
                 // Websocket connection established
                 await that.setStateAsync('info.ws_connection', true, true);
                 that.log.info(`websocket connection established`);
             });
 
-            wsUnifi.on('ctrl.disconnect', async function () {
+            this.wsUnifi.on('ctrl.disconnect', async function () {
                 // Websocket connection established
                 await that.setStateAsync('info.ws_connection', false, true);
                 that.log.warn(`websocket connection lost`);
             });
 
-            wsUnifi.on('events.*', function (data) {
+            this.wsUnifi.on('events.*', async function (data) {
                 that.log.warn('hier');
                 that.log.warn(this.event);
                 that.log.info(JSON.stringify(data));
+
+                if (this.event === 'events.evt_wu_connected' || this.event === 'events.evt_wg_connected' || this.event === 'events.evt_lu_connected' || this.event === 'events.evt_lg_connected') {
+                    let mac;
+
+                    if (this.event === 'events.evt_wg_connected' || this.event === 'events.evt_lg_connected') {
+                        mac = data[0].guest;
+                    } else {
+                        mac = data[0].user;
+                    }
+
+                    const client = await that.getStatesAsync(`*.clients.${mac}`);
+                    that.log.warn(JSON.stringify(client));
+                }
+
             });
 
+            this.wsUnifi.on('ctrl.*', async function (data) {
+                // Websocket connection established
+                that.log.warn(`${this.event}: ${JSON.stringify(data)}`);
+            });
 
             // events:
             // events.evt_sw_poedisconnect
@@ -1467,6 +1494,12 @@ class Unifi extends utils.Adapter {
 
         } catch (err) {
             this.handleError(err, undefined, 'connectWebsocket');
+            await this.setStateAsync('info.ws_connection', false, true);
+
+            try {
+                this.wsUnifi.logout();
+                this.log.info(`websocket connection closed`);
+            } catch (ignore) { /* ignore */ }
         }
     }
 }
